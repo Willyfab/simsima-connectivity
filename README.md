@@ -1,6 +1,10 @@
 # simsima-connectivity — MCP server
 
-Public MCP server exposing Simsima's travel eSIM catalog to AI agents.
+[![Glama score](https://glama.ai/mcp/servers/Willyfab/simsima-connectivity/badges/score.svg)](https://glama.ai/mcp/servers/Willyfab/simsima-connectivity)
+
+**Website:** [simsima.io](https://simsima.io) · **Endpoint:** `POST https://mcp.simsima.io/mcp` (Streamable HTTP) · **Registry:** `io.github.Willyfab/simsima-connectivity`
+
+Public MCP server exposing [Simsima](https://simsima.io)'s travel eSIM catalog to AI agents.
 Endpoint: `POST https://mcp.simsima.io/mcp` (Streamable HTTP). Health: `GET /health`.
 
 ## Tools
