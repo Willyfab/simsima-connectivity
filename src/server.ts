@@ -4,6 +4,7 @@ import type { FeedItem, Locale } from './types';
 import { resolveDestination } from './lib/resolve-destination';
 import { recommendPlans } from './lib/recommend';
 import { buildCheckoutLink } from './lib/checkout-link';
+import { createTelemetry, withTelemetry, type Telemetry } from './telemetry';
 
 const localeSchema = z.enum(['en', 'fr']).default('en');
 
@@ -37,8 +38,10 @@ function planView(i: FeedItem) {
 
 export function buildMcpServer(deps: {
   feed: { getCatalog(locale: Locale): Promise<FeedItem[]> };
+  telemetry?: Telemetry;
 }): McpServer {
   const server = new McpServer({ name: 'simsima-connectivity', version: '0.1.0' });
+  const telemetry = deps.telemetry ?? createTelemetry();
 
   server.registerTool(
     'list_destinations',
@@ -47,7 +50,7 @@ export function buildMcpServer(deps: {
       description: 'List destinations (countries) Simsima covers, with min price and product URL.',
       inputSchema: { locale: localeSchema },
     },
-    async ({ locale }) => {
+    withTelemetry('list_destinations', telemetry, async ({ locale }) => {
       const items = await deps.feed.getCatalog(locale);
       const byDest = new Map<
         string,
@@ -66,7 +69,7 @@ export function buildMcpServer(deps: {
       }
       const destinations = [...byDest.entries()].map(([slug, v]) => ({ slug, ...v }));
       return text(`${destinations.length} destinations available.`, destinations);
-    }
+    })
   );
 
   server.registerTool(
@@ -83,19 +86,23 @@ export function buildMcpServer(deps: {
         unlimited: z.boolean().optional(),
       },
     },
-    async ({ destination, locale, maxPrice, minDataGB, maxValidityDays, unlimited }) => {
-      const items = await deps.feed.getCatalog(locale);
-      const resolved = resolveDestination(items, destination);
-      if (!resolved) return errorText(`Destination "${destination}" not found.`);
-      let plans = resolved.items;
-      if (maxPrice != null) plans = plans.filter((p) => p.price <= maxPrice);
-      if (minDataGB != null)
-        plans = plans.filter((p) => p.unlimited || (p.dataAmountGB ?? 0) >= minDataGB);
-      if (maxValidityDays != null) plans = plans.filter((p) => p.validityDays <= maxValidityDays);
-      if (unlimited != null) plans = plans.filter((p) => p.unlimited === unlimited);
-      plans = [...plans].sort((a, b) => a.price - b.price);
-      return text(`${plans.length} plan(s) for ${resolved.slug}.`, plans.map(planView));
-    }
+    withTelemetry(
+      'search_plans',
+      telemetry,
+      async ({ destination, locale, maxPrice, minDataGB, maxValidityDays, unlimited }) => {
+        const items = await deps.feed.getCatalog(locale);
+        const resolved = resolveDestination(items, destination);
+        if (!resolved) return errorText(`Destination "${destination}" not found.`);
+        let plans = resolved.items;
+        if (maxPrice != null) plans = plans.filter((p) => p.price <= maxPrice);
+        if (minDataGB != null)
+          plans = plans.filter((p) => p.unlimited || (p.dataAmountGB ?? 0) >= minDataGB);
+        if (maxValidityDays != null) plans = plans.filter((p) => p.validityDays <= maxValidityDays);
+        if (unlimited != null) plans = plans.filter((p) => p.unlimited === unlimited);
+        plans = [...plans].sort((a, b) => a.price - b.price);
+        return text(`${plans.length} plan(s) for ${resolved.slug}.`, plans.map(planView));
+      }
+    )
   );
 
   server.registerTool(
@@ -105,12 +112,12 @@ export function buildMcpServer(deps: {
       description: 'Get a single plan by its sku.',
       inputSchema: { sku: z.string(), locale: localeSchema },
     },
-    async ({ sku, locale }) => {
+    withTelemetry('get_plan', telemetry, async ({ sku, locale }) => {
       const items = await deps.feed.getCatalog(locale);
       const found = items.find((i) => i.sku === sku);
       if (!found) return errorText(`Plan "${sku}" not found.`);
       return text(`Plan ${sku}.`, planView(found));
-    }
+    })
   );
 
   server.registerTool(
@@ -125,7 +132,7 @@ export function buildMcpServer(deps: {
         locale: localeSchema,
       },
     },
-    async ({ destination, tripDays, usage, locale }) => {
+    withTelemetry('recommend_plan', telemetry, async ({ destination, tripDays, usage, locale }) => {
       const items = await deps.feed.getCatalog(locale);
       const resolved = resolveDestination(items, destination);
       if (!resolved) return errorText(`Destination "${destination}" not found.`);
@@ -136,7 +143,7 @@ export function buildMcpServer(deps: {
         `Recommendations for ${tripDays} days in ${resolved.slug} (${usage} usage):`,
         recs.map((r) => ({ ...planView(r.item), reason: r.reason }))
       );
-    }
+    })
   );
 
   server.registerTool(
@@ -152,14 +159,16 @@ export function buildMcpServer(deps: {
         locale: localeSchema,
       },
     },
-    async ({ sku, destination, agentSource, locale }) => {
+    withTelemetry('create_checkout_link', telemetry, async ({ sku, destination, agentSource, locale }) => {
       const items = await deps.feed.getCatalog(locale);
       let target: FeedItem | undefined;
       if (sku) target = items.find((i) => i.sku === sku);
       else if (destination) target = resolveDestination(items, destination)?.items[0];
       if (!target) return errorText('Provide a valid sku or destination.');
-      return text('Attributed checkout link:', { checkoutUrl: buildCheckoutLink(target, agentSource) });
-    }
+      return text('Attributed checkout link:', {
+        checkoutUrl: buildCheckoutLink(target, agentSource),
+      });
+    })
   );
 
   return server;

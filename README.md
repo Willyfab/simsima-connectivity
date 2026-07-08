@@ -1,10 +1,6 @@
 # simsima-connectivity — MCP server
 
-[![Glama score](https://glama.ai/mcp/servers/Willyfab/simsima-connectivity/badges/score.svg)](https://glama.ai/mcp/servers/Willyfab/simsima-connectivity)
-
-**Website:** [simsima.io](https://simsima.io) · **Endpoint:** `POST https://mcp.simsima.io/mcp` (Streamable HTTP) · **Registry:** `io.github.Willyfab/simsima-connectivity`
-
-Public MCP server exposing [Simsima](https://simsima.io)'s travel eSIM catalog to AI agents.
+Public MCP server exposing Simsima's travel eSIM catalog to AI agents.
 Endpoint: `POST https://mcp.simsima.io/mcp` (Streamable HTTP). Health: `GET /health`.
 
 ## Tools
@@ -28,6 +24,8 @@ Phase 1 covers country plans in `en`/`fr` (regional/global inherit from the feed
 - `SIMSIMA_FEED_BASE` (default `https://simsima.io`)
 - `PORT` (default 8080)
 - `RATE_LIMIT_RPM` (default 60)
+- `POSTHOG_KEY` (optional) — PostHog project API key. When set, the server emits an `mcp_tool_call` event per tool call. Absent → telemetry disabled (no-op).
+- `POSTHOG_HOST` (optional, default `https://us.i.posthog.com`) — PostHog ingestion host (match the web app).
 
 ## Local dev
 

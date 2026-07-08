@@ -3,6 +3,10 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { buildMcpServer } from './server';
 import { createFeedClient } from './feed-client';
 import { createRateLimiter } from './rate-limit';
+import { createTelemetry } from './telemetry';
+
+// One telemetry instance for the process (no-op unless POSTHOG_KEY is set).
+export const telemetry = createTelemetry();
 
 export function createApp(): Express {
   const app = express();
@@ -21,7 +25,7 @@ export function createApp(): Express {
       return;
     }
     // Stateless: a fresh server + transport per request.
-    const server = buildMcpServer({ feed });
+    const server = buildMcpServer({ feed, telemetry });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on('close', () => {
       transport.close();
@@ -37,5 +41,10 @@ export function createApp(): Express {
 /* istanbul ignore next */
 if (require.main === module) {
   const port = Number(process.env.PORT) || 8080;
+  for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+    process.on(sig, () => {
+      telemetry.shutdown().finally(() => process.exit(0));
+    });
+  }
   createApp().listen(port, () => console.log(`mcp server on :${port}`));
 }
