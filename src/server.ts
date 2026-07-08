@@ -44,8 +44,8 @@ export function buildMcpServer(deps: {
     'list_destinations',
     {
       title: 'List eSIM destinations',
-      description: 'List countries/regions Simsima covers, with min price and product URL.',
-      inputSchema: { locale: localeSchema, region: z.string().optional() },
+      description: 'List destinations (countries) Simsima covers, with min price and product URL.',
+      inputSchema: { locale: localeSchema },
     },
     async ({ locale }) => {
       const items = await deps.feed.getCatalog(locale);
