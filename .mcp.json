@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "simsima-connectivity": {
+      "type": "http",
+      "url": "https://mcp.simsima.io/mcp"
+    }
+  }
+}
