@@ -6,6 +6,7 @@ function fakeResponse(items: number): FeedResponse {
     generatedAt: new Date().toISOString(),
     brand: 'Simsima',
     count: items,
+    destinations: [],
     items: Array.from({ length: items }, (_, i) => ({
       sku: `esim-x-${i}gb-7d`,
       destination: 'x',
@@ -30,8 +31,9 @@ describe('feed-client', () => {
   it('fetches and returns catalog items for a locale', async () => {
     const fetchImpl = mockFetch(fakeResponse(2));
     const client = createFeedClient({ baseUrl: 'https://simsima.io', fetchImpl });
-    const items = await client.getCatalog('en');
+    const { items, stale } = await client.getCatalog('en');
     expect(items).toHaveLength(2);
+    expect(stale).toBe(false);
     expect(fetchImpl).toHaveBeenCalledWith(
       'https://simsima.io/en/agent/catalog',
       expect.any(Object)
@@ -50,12 +52,16 @@ describe('feed-client', () => {
     const good = mockFetch(fakeResponse(3));
     const client = createFeedClient({ baseUrl: 'https://simsima.io', fetchImpl: good, ttlMs: 0 });
     const first = await client.getCatalog('en');
-    expect(first).toHaveLength(3);
+    expect(first.items).toHaveLength(3);
+    expect(first.stale).toBe(false);
     (good as jest.Mock).mockImplementationOnce(async () => {
       throw new Error('network');
     });
     const second = await client.getCatalog('en');
-    expect(second).toHaveLength(3);
+    expect(second.items).toHaveLength(3);
+    // Le cache a servi APRÈS un échec : la réponse est périmée et doit le dire,
+    // sinon une panne du flux passe pour un fonctionnement normal.
+    expect(second.stale).toBe(true);
   });
 
   it('throws when first fetch fails and no cache exists', async () => {

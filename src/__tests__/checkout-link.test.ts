@@ -16,6 +16,25 @@ const item: FeedItem = {
 };
 
 describe('buildCheckoutLink', () => {
+  it('prefers the feed deep-link so the plan arrives preselected', () => {
+    const withDeepLink: FeedItem = {
+      ...item,
+      checkoutUrl:
+        'https://simsima.io/en/esim/esim-japan?sku=esim-japan-1gb-7d&data=1GB&duration=7',
+    };
+    const url = new URL(buildCheckoutLink(withDeepLink, 'claude'));
+    // Les paramètres de présélection survivent à l'ajout des UTM.
+    expect(url.searchParams.get('sku')).toBe('esim-japan-1gb-7d');
+    expect(url.searchParams.get('data')).toBe('1GB');
+    expect(url.searchParams.get('duration')).toBe('7');
+    expect(url.searchParams.get('utm_medium')).toBe('mcp');
+  });
+
+  it('carries the sku in utm_content, to tell recommended from bought', () => {
+    const url = new URL(buildCheckoutLink(item, 'claude'));
+    expect(url.searchParams.get('utm_content')).toBe('esim-japan-1gb-7d');
+  });
+
   it('appends attribution + utm params', () => {
     const url = new URL(buildCheckoutLink(item, 'claude'));
     expect(url.searchParams.get('source')).toBe('agent:claude');

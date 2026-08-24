@@ -1,5 +1,6 @@
 # Stage 1: build
-FROM node:20-alpine AS builder
+# Node 22 LTS: posthog-node@5 exige ^20.20.0 || >=22.22.0 (native fetch)
+FROM node:22-alpine AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit
@@ -8,7 +9,7 @@ COPY src ./src
 RUN npm run build
 
 # Stage 2: runtime
-FROM node:20-alpine AS runtime
+FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./

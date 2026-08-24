@@ -4,7 +4,12 @@ export interface CaptureClient {
 }
 
 export interface Telemetry {
-  capture(props: Record<string, unknown> & { agentSource?: string }): void;
+  /**
+   * `event` par défaut : `mcp_tool_call`. Le lien d'achat émet en plus son
+   * propre événement — c'est la conversion du canal, elle doit être lisible
+   * sans filtrer un événement fourre-tout.
+   */
+  capture(props: Record<string, unknown> & { agentSource?: string }, event?: string): void;
   shutdown(): Promise<void>;
 }
 
@@ -19,7 +24,7 @@ function resolveClient(opts?: {
   // Lazy require so tests/local without posthog-node installed still work.
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { PostHog } = require('posthog-node');
-  const host = opts?.host ?? process.env.POSTHOG_HOST ?? 'https://us.i.posthog.com';
+  const host = opts?.host ?? process.env.POSTHOG_HOST ?? 'https://eu.i.posthog.com';
   const posthog = new PostHog(key, { host });
   return {
     capture: (a) => posthog.capture(a),
@@ -37,12 +42,12 @@ export function createTelemetry(opts?: {
     return { capture: () => {}, shutdown: async () => {} };
   }
   return {
-    capture: (props) => {
+    capture: (props, event = 'mcp_tool_call') => {
       try {
         const { agentSource, ...rest } = props;
         client.capture({
           distinctId: agentSource ? `agent:${agentSource}` : 'mcp-anonymous',
-          event: 'mcp_tool_call',
+          event,
           properties: { ...rest, ...(agentSource ? { agentSource } : {}) },
         });
       } catch {
@@ -61,10 +66,17 @@ export function createTelemetry(opts?: {
 
 const PROP_KEYS = ['locale', 'destination', 'sku', 'agentSource', 'tripDays', 'usage'] as const;
 
+/**
+ * Propriétés que l'outil ajoute à SON événement d'appel — nombre de résultats,
+ * fraîcheur du flux, raison d'un échec. Un seul événement par appel : ces
+ * propriétés sont fusionnées, pas émises à part.
+ */
+export type Track = (props: Record<string, unknown>) => void;
+
 export function withTelemetry<A extends Record<string, unknown>, R>(
   toolName: string,
   telemetry: Telemetry,
-  handler: (args: A) => Promise<R>
+  handler: (args: A, track: Track) => Promise<R>
 ): (args: A) => Promise<R> {
   return async (args: A): Promise<R> => {
     const start = Date.now();
@@ -72,10 +84,13 @@ export function withTelemetry<A extends Record<string, unknown>, R>(
     for (const k of PROP_KEYS) {
       if (args[k] !== undefined) picked[k] = args[k];
     }
+    const extra: Record<string, unknown> = {};
+    const track: Track = (props) => Object.assign(extra, props);
     try {
-      const result = await handler(args);
+      const result = await handler(args, track);
       telemetry.capture({
         ...picked,
+        ...extra,
         tool: toolName,
         isError: Boolean((result as { isError?: boolean } | null | undefined)?.isError),
         durationMs: Date.now() - start,
@@ -84,6 +99,7 @@ export function withTelemetry<A extends Record<string, unknown>, R>(
     } catch (err) {
       telemetry.capture({
         ...picked,
+        ...extra,
         tool: toolName,
         isError: true,
         durationMs: Date.now() - start,
