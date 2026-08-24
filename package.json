@@ -1,6 +1,6 @@
 {
   "name": "@simsima/mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "main": "dist/index.js",
   "scripts": {
@@ -11,12 +11,12 @@
     "lint": "tsc --noEmit"
   },
   "engines": {
-    "node": ">=20"
+    "node": "^20.20.0 || >=22"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "express": "^4.18.2",
-    "posthog-node": "^4.2.0",
+    "posthog-node": "^5.45.2",
     "zod": "^3.23.8"
   },
   "devDependencies": {
