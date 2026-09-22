@@ -38,8 +38,10 @@ say nothing useful.
 
 - `SIMSIMA_FEED_BASE` (default `https://simsima.io`)
 - `PORT` (default 8080)
-- `RATE_LIMIT_RPM` (default 60)
+- `RATE_LIMIT_RPM` (default 60) — per calling IP. Relies on `trust proxy`: without it every caller shares the proxy's address and the limit turns into one global ceiling that a single scanner empties.
 - `POSTHOG_KEY` (optional) — PostHog project API key. When set, the server emits an `mcp_tool_call` event per tool call, carrying `resultCount`, `feedStale` and a named `failureReason` when a call comes back empty, plus a dedicated `mcp_checkout_link` event when a checkout link is handed out. Absent → telemetry disabled (no-op).
+
+  Each event also carries where the call came from, read once per request from the headers: `client` (`claude` / `openai` / `cursor` / `vscode` / `bot` / `script` / `unknown`), the raw `userAgent`, and `country`. The User-Agent is sent by the MCP client rather than written by the model, which makes it the one origin signal a caller does not pick for itself — `agentSource` is a free-form string and reads as conversation context, not identity. The caller's IP is resolved as well (`CF-Connecting-IP`, then `X-Forwarded-For`, then `req.ip`) and is used **only** to meter requests; it never reaches PostHog.
 - `POSTHOG_HOST` (optional, default `https://eu.i.posthog.com`) — PostHog ingestion host (match the web app).
 
 ## Local dev

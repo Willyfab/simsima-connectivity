@@ -1,6 +1,8 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { buildMcpServer } from '../server';
+import { withContext } from '../telemetry';
+import { buildClientContext } from '../lib/client-context';
 import type { FeedDestination, FeedItem, Locale } from '../types';
 
 const items: FeedItem[] = [
@@ -239,5 +241,54 @@ describe('get_destination_info', () => {
       arguments: { destination: 'europe', locale: 'en' },
     });
     expect(textOf(r)).toContain('"networks": []');
+  });
+});
+
+describe("contexte d'origine de bout en bout", () => {
+  it("joint le client résolu depuis les en-têtes à l'événement de chaque outil", async () => {
+    const { events, telemetry } = fakeTelemetry();
+    const decorated = withContext(telemetry, buildClientContext({
+      'user-agent': 'Claude-User',
+      'cf-ipcountry': 'JP',
+      'cf-connecting-ip': '203.0.113.7',
+    }));
+    const client = await connectWith(
+      async (_l: Locale) => ({ items, destinations, stale: false }),
+      decorated
+    );
+
+    await client.callTool({ name: 'search_plans', arguments: { destination: 'japan', locale: 'en' } });
+    await client.callTool({
+      name: 'create_checkout_link',
+      arguments: { sku: 'esim-japan-1gb-7d', agentSource: 'blogger-japan-guide', locale: 'en' },
+    });
+
+    // Tous les événements portent l'origine, pas seulement celui du lien.
+    expect(events.length).toBeGreaterThanOrEqual(3);
+    for (const e of events) {
+      expect(e.props.client).toBe('claude');
+      expect(e.props.country).toBe('JP');
+      expect(e.props.userAgent).toBe('Claude-User');
+      // L'IP sert au débit, jamais à la mesure.
+      expect(JSON.stringify(e.props)).not.toContain('203.0.113.7');
+    }
+    // Et l'intention déclarée survit à côté de l'origine mesurée.
+    const link = events.find((e) => e.event === 'mcp_checkout_link');
+    expect(link?.props.agentSource).toBe('blogger-japan-guide');
+    expect(link?.props.client).toBe('claude');
+  });
+
+  it('distingue une sonde d’annuaire d’un client réel', async () => {
+    const { events, telemetry } = fakeTelemetry();
+    const decorated = withContext(
+      telemetry,
+      buildClientContext({ 'user-agent': 'mcpbeat/0.1 (+https://mcpbeat.com/bot/; liveness check)' })
+    );
+    const client = await connectWith(
+      async (_l: Locale) => ({ items, destinations, stale: false }),
+      decorated
+    );
+    await client.callTool({ name: 'list_destinations', arguments: { locale: 'en' } });
+    expect(events[0].props.client).toBe('bot');
   });
 });

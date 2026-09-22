@@ -1,4 +1,4 @@
-import { createTelemetry, withTelemetry, type CaptureClient } from '../telemetry';
+import { createTelemetry, withContext, withTelemetry, type CaptureClient } from '../telemetry';
 
 function fakeClient() {
   const calls: any[] = [];
@@ -85,5 +85,43 @@ describe('withTelemetry', () => {
     };
     await expect(withTelemetry('list_destinations', t, handler)({} as any)).rejects.toThrow('boom');
     expect(calls[0].properties.isError).toBe(true);
+  });
+});
+
+describe('withContext', () => {
+  it('joint le contexte à chaque capture', () => {
+    const { client, calls } = fakeClient();
+    const t = withContext(createTelemetry({ client }), { client: 'claude', country: 'FR' });
+    t.capture({ tool: 'search_plans' });
+    t.capture({ tool: 'get_plan' });
+    expect(calls).toHaveLength(2);
+    expect(calls[0].properties).toMatchObject({ tool: 'search_plans', client: 'claude', country: 'FR' });
+    expect(calls[1].properties).toMatchObject({ tool: 'get_plan', client: 'claude', country: 'FR' });
+  });
+
+  it("laisse l'appel l'emporter sur le contexte", () => {
+    const { client, calls } = fakeClient();
+    withContext(createTelemetry({ client }), { locale: 'en' }).capture({ tool: 'x', locale: 'fr' });
+    expect(calls[0].properties.locale).toBe('fr');
+  });
+
+  it('préserve le distinct_id tiré de agentSource', () => {
+    const { client, calls } = fakeClient();
+    withContext(createTelemetry({ client }), { client: 'claude' }).capture({
+      tool: 'create_checkout_link',
+      agentSource: 'blogger-japan-guide',
+    });
+    expect(calls[0].distinctId).toBe('agent:blogger-japan-guide');
+    expect(calls[0].properties.client).toBe('claude');
+  });
+
+  it("transmet l'événement dédié du lien d'achat", () => {
+    const { client, calls } = fakeClient();
+    withContext(createTelemetry({ client }), { client: 'openai' }).capture(
+      { sku: 'esim-japan-10gb-30d' },
+      'mcp_checkout_link'
+    );
+    expect(calls[0].event).toBe('mcp_checkout_link');
+    expect(calls[0].properties.client).toBe('openai');
   });
 });
