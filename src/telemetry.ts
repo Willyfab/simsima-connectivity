@@ -64,6 +64,24 @@ export function createTelemetry(opts?: {
   };
 }
 
+/**
+ * Joint un contexte fixe à chaque capture — l'origine de l'appel, résolue une
+ * fois par requête HTTP.
+ *
+ * Passe par un décorateur plutôt que par un paramètre de `withTelemetry` : les
+ * sept outils émettent déjà leur événement sans rien savoir du transport, et
+ * c'est bien ainsi. Les propriétés de l'appel l'emportent sur le contexte, pour
+ * qu'un outil puisse toujours corriger une valeur.
+ */
+export function withContext(base: Telemetry, context: Record<string, unknown>): Telemetry {
+  return {
+    capture: (props, event) => base.capture({ ...context, ...props }, event),
+    // Délègue : l'arrêt reste piloté par l'instance du processus, jamais par
+    // une requête.
+    shutdown: () => base.shutdown(),
+  };
+}
+
 const PROP_KEYS = ['locale', 'destination', 'sku', 'agentSource', 'tripDays', 'usage'] as const;
 
 /**

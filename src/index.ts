@@ -3,13 +3,18 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { buildMcpServer } from './server';
 import { createFeedClient } from './feed-client';
 import { createRateLimiter } from './rate-limit';
-import { createTelemetry } from './telemetry';
+import { createTelemetry, withContext } from './telemetry';
+import { buildClientContext, resolveClientIp } from './lib/client-context';
 
 // One telemetry instance for the process (no-op unless POSTHOG_KEY is set).
 export const telemetry = createTelemetry();
 
 export function createApp(): Express {
   const app = express();
+  // Derrière Traefik puis Cloudflare : sans ça `req.ip` est l'IP du proxy, la
+  // même pour tous les appelants, et le compteur de débit ci-dessous devient un
+  // plafond global que le premier scan venu épuise.
+  app.set('trust proxy', true);
   app.use(express.json());
 
   const feed = createFeedClient();
@@ -19,13 +24,17 @@ export function createApp(): Express {
   app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
   app.post('/mcp', async (req: Request, res: Response) => {
-    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    const ip = resolveClientIp(req.headers, req.ip || req.socket.remoteAddress);
     if (!allow(ip)) {
       res.status(429).json({ error: 'rate_limited' });
       return;
     }
-    // Stateless: a fresh server + transport per request.
-    const server = buildMcpServer({ feed, telemetry });
+    // Stateless: a fresh server + transport per request. C'est aussi ce qui
+    // rend le contexte d'origine trivial à injecter — une instance, une requête.
+    const server = buildMcpServer({
+      feed,
+      telemetry: withContext(telemetry, buildClientContext(req.headers)),
+    });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on('close', () => {
       transport.close();
