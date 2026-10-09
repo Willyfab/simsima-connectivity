@@ -11,7 +11,8 @@ route, which local networks it uses, and which plan fits the length of your stay
 picked one, it gives you the link to that plan on simsima.io, where you complete the purchase
 yourself.
 
-It needs no account and no login, and it only reads the public catalog.
+It works in the 26 languages of simsima.io, with prices in the matching currency. It needs no
+account and no login, and it only reads the public catalog.
 
 ## Add it to Claude
 
@@ -72,6 +73,10 @@ Health check: `GET https://mcp.simsima.io/health`.
 ## Data source
 
 Reads the public web feed `${SIMSIMA_FEED_BASE}/{locale}/agent/catalog` (cached ~15 min).
+Every tool takes a `locale` among the site's 26 languages (default `en`). It sets the language of
+product URLs and the currency of prices (USD in English, EUR in French, JPY in Japanese…); destination
+slugs are the same in every language, and `check_coverage` reads country names in the user's own
+language and script ("Kroatien", "クロアチア").
 Product URLs come straight from the feed → always valid (zero 404). No database, no backend calls.
 
 That feed is built from Simsima's sellable catalog — the same source the website and the Google
