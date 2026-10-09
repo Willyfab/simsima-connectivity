@@ -9,7 +9,7 @@ export interface Telemetry {
    * propre événement — c'est la conversion du canal, elle doit être lisible
    * sans filtrer un événement fourre-tout.
    */
-  capture(props: Record<string, unknown> & { agentSource?: string }, event?: string): void;
+  capture(props: Record<string, unknown>, event?: string): void;
   shutdown(): Promise<void>;
 }
 
@@ -44,11 +44,13 @@ export function createTelemetry(opts?: {
   return {
     capture: (props, event = 'mcp_tool_call') => {
       try {
-        const { agentSource, ...rest } = props;
+        // Un distinct_id par famille de client : PostHog regroupe le trafic
+        // Claude, ChatGPT… sans jamais identifier une personne.
+        const family = typeof props.client === 'string' ? props.client : null;
         client.capture({
-          distinctId: agentSource ? `agent:${agentSource}` : 'mcp-anonymous',
+          distinctId: family ? `mcp:${family}` : 'mcp-anonymous',
           event,
-          properties: { ...rest, ...(agentSource ? { agentSource } : {}) },
+          properties: props,
         });
       } catch {
         /* fire-and-forget: telemetry must never break a tool */
@@ -82,7 +84,7 @@ export function withContext(base: Telemetry, context: Record<string, unknown>): 
   };
 }
 
-const PROP_KEYS = ['locale', 'destination', 'sku', 'agentSource', 'tripDays', 'usage'] as const;
+const PROP_KEYS = ['locale', 'destination', 'sku', 'tripDays', 'usage'] as const;
 
 /**
  * Propriétés que l'outil ajoute à SON événement d'appel — nombre de résultats,

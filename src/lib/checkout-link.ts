@@ -1,6 +1,5 @@
 import type { FeedItem } from '../types';
-
-const AGENT_SOURCE_RE = /^[a-z0-9:_-]{1,40}$/;
+import type { ClientFamily } from './client-context';
 
 /**
  * Lien d'achat attribué.
@@ -15,9 +14,11 @@ const AGENT_SOURCE_RE = /^[a-z0-9:_-]{1,40}$/;
  * `utm_content` porte le SKU : c'est ce qui permet, côté PostHog, de savoir non
  * seulement qu'un achat vient d'un agent mais s'il porte sur le forfait
  * effectivement recommandé.
+ *
+ * `utm_source` est la famille du client MCP (`claude`, `openai`…), tirée du
+ * User-Agent : le seul signal d'origine que le modèle ne choisit pas.
  */
-export function buildCheckoutLink(item: FeedItem, agentSource: string): string {
-  const source = AGENT_SOURCE_RE.test(agentSource) ? agentSource : 'unknown';
+export function buildCheckoutLink(item: FeedItem, source: ClientFamily): string {
   const url = new URL(item.checkoutUrl || item.url);
   url.searchParams.set('source', `agent:${source}`);
   url.searchParams.set('utm_source', source);

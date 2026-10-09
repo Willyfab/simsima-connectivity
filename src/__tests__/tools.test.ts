@@ -2,7 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { buildMcpServer } from '../server';
 import { withContext } from '../telemetry';
-import { buildClientContext } from '../lib/client-context';
+import { buildClientContext, type ClientFamily } from '../lib/client-context';
 import type { FeedDestination, FeedItem, Locale } from '../types';
 
 const items: FeedItem[] = [
@@ -61,9 +61,10 @@ async function connectWith(
     destinations: FeedDestination[];
     stale: boolean;
   }>,
-  telemetry?: any
+  telemetry?: any,
+  clientFamily?: ClientFamily
 ) {
-  const server = buildMcpServer({ feed: { getCatalog }, telemetry });
+  const server = buildMcpServer({ feed: { getCatalog }, telemetry, client: clientFamily });
   const client = new Client({ name: 'test', version: '0.0.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -127,14 +128,53 @@ describe('mcp tools', () => {
     expect(textOf(res)).toContain('esim-japan-5gb-7d');
   });
 
-  it('create_checkout_link returns an attributed url', async () => {
-    const client = await connect();
+  it('create_checkout_link attributes the link to the calling client', async () => {
+    const client = await connectWith(
+      async () => ({ items, destinations, stale: false }),
+      undefined,
+      'claude'
+    );
     const res = await client.callTool({
       name: 'create_checkout_link',
-      arguments: { sku: 'esim-japan-1gb-7d', agentSource: 'claude' },
+      arguments: { sku: 'esim-japan-1gb-7d' },
     });
     expect(textOf(res)).toContain('utm_medium=mcp');
     expect(textOf(res)).toContain('source=agent%3Aclaude');
+  });
+
+  it('create_checkout_link no longer asks the model for an agentSource', async () => {
+    const client = await connect();
+    const { tools } = await client.listTools();
+    const link = tools.find((t) => t.name === 'create_checkout_link');
+    expect(Object.keys(link?.inputSchema.properties ?? {})).not.toContain('agentSource');
+    expect(link?.inputSchema.required ?? []).toEqual([]);
+  });
+
+  it('create_checkout_link says what to pass when given nothing', async () => {
+    const client = await connect();
+    const res: any = await client.callTool({ name: 'create_checkout_link', arguments: {} });
+    expect(res.isError).toBe(true);
+    expect(textOf(res)).toContain('search_plans');
+  });
+
+  it('declares every tool read-only, as the Anthropic directory requires', async () => {
+    const client = await connect();
+    const { tools } = await client.listTools();
+    expect(tools).toHaveLength(7);
+    for (const t of tools) {
+      expect(t.title).toBeTruthy();
+      expect(t.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
+    }
+  });
+
+  it('points to a way out when a destination is unknown', async () => {
+    const client = await connect();
+    const res: any = await client.callTool({
+      name: 'search_plans',
+      arguments: { destination: 'atlantide' },
+    });
+    expect(res.isError).toBe(true);
+    expect(textOf(res)).toContain('list_destinations');
   });
 
   it('get_plan errors clearly on unknown sku', async () => {
@@ -175,7 +215,7 @@ describe('telemetry emitted by the tools', () => {
     const client = await connectWith(async () => ({ items, destinations, stale: false }), telemetry);
     await client.callTool({
       name: 'create_checkout_link',
-      arguments: { sku: 'esim-japan-1gb-7d', agentSource: 'claude', locale: 'en' },
+      arguments: { sku: 'esim-japan-1gb-7d', locale: 'en' },
     });
     const conversion = events.find((e) => e.event === 'mcp_checkout_link');
     expect(conversion).toBeDefined();
@@ -260,7 +300,7 @@ describe("contexte d'origine de bout en bout", () => {
     await client.callTool({ name: 'search_plans', arguments: { destination: 'japan', locale: 'en' } });
     await client.callTool({
       name: 'create_checkout_link',
-      arguments: { sku: 'esim-japan-1gb-7d', agentSource: 'blogger-japan-guide', locale: 'en' },
+      arguments: { sku: 'esim-japan-1gb-7d', locale: 'en' },
     });
 
     // Tous les événements portent l'origine, pas seulement celui du lien.
@@ -272,9 +312,9 @@ describe("contexte d'origine de bout en bout", () => {
       // L'IP sert au débit, jamais à la mesure.
       expect(JSON.stringify(e.props)).not.toContain('203.0.113.7');
     }
-    // Et l'intention déclarée survit à côté de l'origine mesurée.
+    // Plus rien de dicté par le modèle : l'origine est celle mesurée.
     const link = events.find((e) => e.event === 'mcp_checkout_link');
-    expect(link?.props.agentSource).toBe('blogger-japan-guide');
+    expect(link?.props).not.toHaveProperty('agentSource');
     expect(link?.props.client).toBe('claude');
   });
 

@@ -44,16 +44,16 @@ describe('buildCheckoutLink', () => {
     expect(url.pathname).toBe('/en/esim/esim-japan');
   });
 
-  it('falls back to unknown for an invalid agentSource', () => {
-    const url = new URL(buildCheckoutLink(item, 'Bad Source!!'));
+  it('attributes an unrecognized client to unknown', () => {
+    const url = new URL(buildCheckoutLink(item, 'unknown'));
     expect(url.searchParams.get('source')).toBe('agent:unknown');
     expect(url.searchParams.get('utm_source')).toBe('unknown');
   });
 
   it('preserves pre-existing query params on the product url', () => {
     const withQuery = { ...item, url: 'https://simsima.io/en/esim/esim-japan?ref=abc' };
-    const url = new URL(buildCheckoutLink(withQuery, 'chatgpt'));
+    const url = new URL(buildCheckoutLink(withQuery, 'openai'));
     expect(url.searchParams.get('ref')).toBe('abc');
-    expect(url.searchParams.get('utm_source')).toBe('chatgpt');
+    expect(url.searchParams.get('utm_source')).toBe('openai');
   });
 });

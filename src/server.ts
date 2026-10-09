@@ -11,8 +11,25 @@ import {
   standaloneDestinationFor,
 } from './lib/coverage';
 import { createTelemetry, withTelemetry, type Telemetry } from './telemetry';
+import type { ClientFamily } from './lib/client-context';
 
 const localeSchema = z.enum(['en', 'fr']).default('en');
+
+/**
+ * Aucun outil n'écrit quoi que ce soit : tous lisent le flux catalogue, le lien
+ * d'achat compris (il construit une URL, la commande se passe sur le site).
+ * L'annuaire Anthropic rejette un outil sans `readOnlyHint` ni `destructiveHint`.
+ */
+const READ_ONLY = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const;
+
+/** Rappelé dans chaque erreur de destination : c'est la sortie de l'impasse. */
+const FIND_DESTINATION_HINT =
+  'Use a country name ("Japan"), an ISO code ("JP"), a region ("Europe") or a slug returned by list_destinations.';
 
 function text(summary: string, data: unknown) {
   return {
@@ -55,6 +72,8 @@ function planView(i: FeedItem) {
 export function buildMcpServer(deps: {
   feed: { getCatalog(locale: Locale): Promise<CatalogResult> };
   telemetry?: Telemetry;
+  /** Famille du client MCP appelant, tirée du User-Agent : l'attribution du lien d'achat. */
+  client?: ClientFamily;
 }): McpServer {
   const server = new McpServer({ name: 'simsima-connectivity', version: '0.1.0' });
   const telemetry = deps.telemetry ?? createTelemetry();
@@ -63,8 +82,10 @@ export function buildMcpServer(deps: {
     'list_destinations',
     {
       title: 'List eSIM destinations',
-      description: 'List destinations (countries) Simsima covers, with min price and product URL.',
+      description:
+        'List the destinations Simsima covers (countries, regions and global plans), with the entry price and product URL of each.',
       inputSchema: { locale: localeSchema },
+      annotations: READ_ONLY,
     },
     withTelemetry('list_destinations', telemetry, async ({ locale }, track) => {
       const { items, stale } = await deps.feed.getCatalog(locale);
@@ -107,7 +128,8 @@ export function buildMcpServer(deps: {
     'search_plans',
     {
       title: 'Search eSIM plans',
-      description: 'Search plans for a destination (country name or slug), with optional filters.',
+      description:
+        'Search the eSIM plans of a destination (country, region or global), cheapest first, with optional filters on price, data, validity and unlimited data.',
       inputSchema: {
         destination: z.string(),
         locale: localeSchema,
@@ -116,6 +138,7 @@ export function buildMcpServer(deps: {
         maxValidityDays: z.number().optional(),
         unlimited: z.boolean().optional(),
       },
+      annotations: READ_ONLY,
     },
     withTelemetry(
       'search_plans',
@@ -129,7 +152,7 @@ export function buildMcpServer(deps: {
           // de catalogue, soit une variante de nommage à absorber. Les deux se
           // corrigent, à condition de les voir.
           track({ resultCount: 0, failureReason: 'destination_not_found' });
-          return errorText(`Destination "${destination}" not found.`);
+          return errorText(`Destination "${destination}" not found. ${FIND_DESTINATION_HINT}`);
         }
         let plans = resolved.items;
         if (maxPrice != null) plans = plans.filter((p) => p.price <= maxPrice);
@@ -150,8 +173,9 @@ export function buildMcpServer(deps: {
     'get_plan',
     {
       title: 'Get eSIM plan detail',
-      description: 'Get a single plan by its sku.',
+      description: 'Get one eSIM plan by its sku, as returned by search_plans or recommend_plan.',
       inputSchema: { sku: z.string(), locale: localeSchema },
+      annotations: READ_ONLY,
     },
     withTelemetry('get_plan', telemetry, async ({ sku, locale }, track) => {
       const { items, stale } = await deps.feed.getCatalog(locale);
@@ -159,7 +183,9 @@ export function buildMcpServer(deps: {
       const found = items.find((i) => i.sku === sku);
       if (!found) {
         track({ resultCount: 0, failureReason: 'sku_not_found' });
-        return errorText(`Plan "${sku}" not found.`);
+        return errorText(
+          `Plan "${sku}" not found. Plans change with the catalog: call search_plans for the destination to get current skus.`
+        );
       }
       track({ resultCount: 1 });
       return text(`Plan ${sku}.`, planView(found));
@@ -170,13 +196,15 @@ export function buildMcpServer(deps: {
     'recommend_plan',
     {
       title: 'Recommend an eSIM plan',
-      description: 'Recommend the best plan(s) for a trip given its length and data usage.',
+      description:
+        'Recommend the best plan(s) for a trip to a destination, given its length in days and expected data usage (light, medium or heavy).',
       inputSchema: {
         destination: z.string(),
         tripDays: z.number().int().positive(),
         usage: z.enum(['light', 'medium', 'heavy']),
         locale: localeSchema,
       },
+      annotations: READ_ONLY,
     },
     withTelemetry('recommend_plan', telemetry, async ({ destination, tripDays, usage, locale }, track) => {
       const { items, stale } = await deps.feed.getCatalog(locale);
@@ -184,14 +212,16 @@ export function buildMcpServer(deps: {
       const resolved = resolveDestination(items, destination);
       if (!resolved) {
         track({ resultCount: 0, failureReason: 'destination_not_found' });
-        return errorText(`Destination "${destination}" not found.`);
+        return errorText(`Destination "${destination}" not found. ${FIND_DESTINATION_HINT}`);
       }
       const recs = recommendPlans(resolved.items, { tripDays, usage });
       if (recs.length === 0) {
         // Aucun forfait ne couvre la durée demandée : c'est un trou d'offre
         // (durées longues, surtout), pas un bug. À suivre dans le temps.
         track({ resultCount: 0, failureReason: 'no_plan_covers_trip' });
-        return errorText(`No plan covers a ${tripDays}-day trip to ${resolved.slug}.`);
+        return errorText(
+          `No single plan covers a ${tripDays}-day trip to ${resolved.slug}. Call search_plans to see the longest plans, and check topUp: a rechargeable plan can be extended.`
+        );
       }
       track({ resultCount: recs.length });
       return text(
@@ -204,27 +234,40 @@ export function buildMcpServer(deps: {
   server.registerTool(
     'create_checkout_link',
     {
-      title: 'Create an attributed checkout link',
+      title: 'Get a link to buy a plan on simsima.io',
       description:
-        'Return a Simsima product URL with agent attribution, for the user to complete checkout.',
+        "Return the URL of a plan's page on simsima.io, with the plan preselected, where the user can review and buy it. No order is placed and no payment is made by this tool. Pass the sku of the chosen plan, or a destination to link its cheapest plan.",
+      // `agentSource` a quitté le schéma : le modèle le remplissait avec des
+      // bribes de conversation (prénoms, pseudos), contraire à la politique de
+      // l'annuaire et inexploitable comme attribution. Le User-Agent le remplace.
       inputSchema: {
         sku: z.string().optional(),
         destination: z.string().optional(),
-        agentSource: z.string(),
         locale: localeSchema,
       },
+      annotations: READ_ONLY,
     },
-    withTelemetry('create_checkout_link', telemetry, async ({ sku, destination, agentSource, locale }, track) => {
+    withTelemetry('create_checkout_link', telemetry, async ({ sku, destination, locale }, track) => {
       const { items, stale } = await deps.feed.getCatalog(locale);
       track({ feedStale: stale });
       let target: FeedItem | undefined;
       if (sku) target = items.find((i) => i.sku === sku);
       else if (destination) target = resolveDestination(items, destination)?.items[0];
       if (!target) {
-        track({ resultCount: 0, failureReason: sku ? 'sku_not_found' : 'destination_not_found' });
-        return errorText('Provide a valid sku or destination.');
+        track({
+          resultCount: 0,
+          failureReason: sku ? 'sku_not_found' : destination ? 'destination_not_found' : 'missing_target',
+        });
+        return errorText(
+          sku
+            ? `Plan "${sku}" not found. Call search_plans for the destination to get current skus.`
+            : destination
+              ? `Destination "${destination}" not found. ${FIND_DESTINATION_HINT}`
+              : 'Pass either the sku of a plan (from search_plans) or a destination.'
+        );
       }
-      const checkoutUrl = buildCheckoutLink(target, agentSource);
+      const client = deps.client ?? 'unknown';
+      const checkoutUrl = buildCheckoutLink(target, client);
       track({ resultCount: 1 });
       // Événement dédié : c'est la conversion du canal agent. Noyée dans
       // `mcp_tool_call`, elle n'est lisible qu'en filtrant sur un nom d'outil ;
@@ -232,7 +275,6 @@ export function buildMcpServer(deps: {
       // `purchase` server-side (même `utm_source`, `utm_content` = le SKU).
       telemetry.capture(
         {
-          agentSource,
           locale,
           tool: 'create_checkout_link',
           sku: target.sku,
@@ -247,7 +289,7 @@ export function buildMcpServer(deps: {
         },
         'mcp_checkout_link'
       );
-      return text('Attributed checkout link:', { checkoutUrl });
+      return text('Plan page on simsima.io, where the user completes the purchase:', { checkoutUrl });
     })
   );
 
@@ -262,6 +304,7 @@ export function buildMcpServer(deps: {
         country: z.string(),
         locale: localeSchema,
       },
+      annotations: READ_ONLY,
     },
     withTelemetry('check_coverage', telemetry, async ({ destination, country, locale }, track) => {
       const { destinations, stale } = await deps.feed.getCatalog(locale);
@@ -270,17 +313,21 @@ export function buildMcpServer(deps: {
         // Flux antérieur au champ `destinations` : le dire, plutôt que de
         // répondre « non couvert » — un faux négatif ferait perdre la vente.
         track({ resultCount: 0, failureReason: 'coverage_unavailable' });
-        return errorText('Coverage data is unavailable for this catalog.');
+        return errorText(
+          'Coverage data is temporarily unavailable. Call get_destination_info later, or search_plans for the country itself.'
+        );
       }
       const dest = findDestination(destinations, destination);
       if (!dest) {
         track({ resultCount: 0, failureReason: 'destination_not_found' });
-        return errorText(`Destination "${destination}" not found.`);
+        return errorText(`Destination "${destination}" not found. ${FIND_DESTINATION_HINT}`);
       }
       const code = resolveCountryCode(country, allCoveredCodes(destinations), locale);
       if (!code) {
         track({ resultCount: 0, failureReason: 'country_not_recognized' });
-        return errorText(`Country "${country}" not recognized, or not covered by any Simsima plan.`);
+        return errorText(
+          `Country "${country}" not recognized, or not covered by any Simsima plan. Use an English country name or a two-letter ISO code ("JP").`
+        );
       }
       const covered = dest.coverage.includes(code);
       const standalone = standaloneDestinationFor(destinations, code);
@@ -305,6 +352,7 @@ export function buildMcpServer(deps: {
       description:
         'Coverage (ISO country codes), mobile operators, top-up availability and entry price for a destination.',
       inputSchema: { destination: z.string(), locale: localeSchema },
+      annotations: READ_ONLY,
     },
     withTelemetry('get_destination_info', telemetry, async ({ destination, locale }, track) => {
       const { items, destinations, stale } = await deps.feed.getCatalog(locale);
@@ -312,7 +360,7 @@ export function buildMcpServer(deps: {
       const dest = findDestination(destinations, destination);
       if (!dest) {
         track({ resultCount: 0, failureReason: 'destination_not_found' });
-        return errorText(`Destination "${destination}" not found.`);
+        return errorText(`Destination "${destination}" not found. ${FIND_DESTINATION_HINT}`);
       }
       const plans = items.filter((i) => i.destination === dest.destination);
       const cheapest = [...plans].sort((a, b) => a.price - b.price)[0];

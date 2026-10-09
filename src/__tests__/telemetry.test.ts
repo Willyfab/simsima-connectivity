@@ -17,17 +17,17 @@ describe('createTelemetry', () => {
     expect(() => t.capture({ tool: 'x' })).not.toThrow();
   });
 
-  it('captures mcp_tool_call with distinct_id from agentSource', () => {
+  it('captures mcp_tool_call with a distinct_id per client family', () => {
     const { client, calls } = fakeClient();
     const t = createTelemetry({ client });
-    t.capture({ tool: 'create_checkout_link', agentSource: 'claude', isError: false });
+    t.capture({ tool: 'create_checkout_link', client: 'claude', isError: false });
     expect(calls).toHaveLength(1);
     expect(calls[0].event).toBe('mcp_tool_call');
-    expect(calls[0].distinctId).toBe('agent:claude');
+    expect(calls[0].distinctId).toBe('mcp:claude');
     expect(calls[0].properties.tool).toBe('create_checkout_link');
   });
 
-  it('defaults distinct_id to mcp-anonymous when no agentSource', () => {
+  it('defaults distinct_id to mcp-anonymous without a client family', () => {
     const { client, calls } = fakeClient();
     createTelemetry({ client }).capture({ tool: 'search_plans' });
     expect(calls[0].distinctId).toBe('mcp-anonymous');
@@ -105,13 +105,12 @@ describe('withContext', () => {
     expect(calls[0].properties.locale).toBe('fr');
   });
 
-  it('préserve le distinct_id tiré de agentSource', () => {
+  it('tire le distinct_id de la famille de client du contexte', () => {
     const { client, calls } = fakeClient();
     withContext(createTelemetry({ client }), { client: 'claude' }).capture({
       tool: 'create_checkout_link',
-      agentSource: 'blogger-japan-guide',
     });
-    expect(calls[0].distinctId).toBe('agent:blogger-japan-guide');
+    expect(calls[0].distinctId).toBe('mcp:claude');
     expect(calls[0].properties.client).toBe('claude');
   });
 
