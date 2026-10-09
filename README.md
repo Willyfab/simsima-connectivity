@@ -2,7 +2,7 @@
 
 [![Glama score](https://glama.ai/mcp/servers/Willyfab/simsima-connectivity/badges/score.svg)](https://glama.ai/mcp/servers/Willyfab/simsima-connectivity)
 
-**Website:** [simsima.io](https://simsima.io) · **Endpoint:** `https://mcp.simsima.io/mcp` (Streamable HTTP) · **Registry:** `io.github.Willyfab/simsima-connectivity`
+**In Claude:** [connector directory](https://claude.ai/directory/simsima) · **Website:** [simsima.io](https://simsima.io) · **Endpoint:** `https://mcp.simsima.io/mcp` (Streamable HTTP) · **Registry:** `io.github.Willyfab/simsima-connectivity`
 
 Simsima sells prepaid travel eSIMs for about 190 countries, regions and worldwide plans. This
 connector lets Claude, or any MCP client, look up that catalog while you plan a trip: which plans
@@ -16,8 +16,12 @@ account and no login, and it only reads the public catalog.
 
 ## Add it to Claude
 
-In Claude (web, desktop or mobile), open **Settings › Connectors**, choose **Add custom
-connector**, and enter `https://mcp.simsima.io/mcp`. No authentication is required.
+Simsima is listed in Claude's connector directory: open
+[claude.ai/directory/simsima](https://claude.ai/directory/simsima) and connect it. No account and
+no authentication are required.
+
+You can also add it by hand: in Claude (web, desktop or mobile), open **Settings › Connectors**,
+choose **Add custom connector**, and enter `https://mcp.simsima.io/mcp`.
 
 In Claude Code:
 
@@ -45,7 +49,7 @@ All tools are read-only.
 | `recommend_plan` | Best plan(s) for a trip, given its length in days and light, medium or heavy usage. |
 | `check_coverage` | Whether a destination's plan covers a given country (name or ISO code), with the standalone country plan as an alternative. |
 | `get_destination_info` | Countries covered, mobile operators, top-up availability and entry price for one destination. |
-| `create_checkout_link` | Link to a plan's page on simsima.io, with the plan preselected. No order is placed and no payment is made by the tool: the purchase happens on the website. |
+| `create_checkout_link` | Link to a plan's page on simsima.io, with the plan preselected (given only a destination, the destination's page). No order is placed and no payment is made by the tool: the purchase happens on the website. |
 
 ## Data and privacy
 
