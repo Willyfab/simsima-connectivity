@@ -1,0 +1,32 @@
+{
+  "name": "simsima",
+  "displayName": "Simsima",
+  "version": "1.0.0",
+  "description": "Plan mobile data for a trip: find, compare and pick a travel eSIM for 190+ destinations, check coverage on multi-country routes, and get the link to buy it on simsima.io.",
+  "author": {
+    "name": "Simsima",
+    "email": "support@simsima.io",
+    "url": "https://simsima.io"
+  },
+  "homepage": "https://claude.ai/directory/simsima",
+  "repository": "https://github.com/Willyfab/simsima-connectivity",
+  "license": "MIT",
+  "keywords": [
+    "travel",
+    "esim",
+    "mobile-data",
+    "roaming",
+    "trip-planning"
+  ],
+  "icon": "./icon.png",
+  "documentationUrl": "https://github.com/Willyfab/simsima-connectivity/tree/main/plugin#readme",
+  "supportUrl": "https://simsima.io/en/contact",
+  "privacyPolicyUrl": "https://simsima.io/en/privacy",
+  "termsOfServiceUrl": "https://simsima.io/en/terms",
+  "mcpServers": {
+    "simsima": {
+      "type": "http",
+      "url": "https://mcp.simsima.io/mcp"
+    }
+  }
+}

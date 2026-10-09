@@ -1,0 +1,15 @@
+{
+  "name": "simsima",
+  "owner": {
+    "name": "Simsima",
+    "email": "support@simsima.io"
+  },
+  "description": "Simsima's plugin for Claude: plan mobile data for a trip with live travel eSIM plans, prices and coverage for 190+ destinations.",
+  "plugins": [
+    {
+      "name": "simsima",
+      "source": "./plugin",
+      "description": "Plan mobile data for a trip: find, compare and pick a travel eSIM for 190+ destinations, check coverage on multi-country routes, and get the link to buy it on simsima.io."
+    }
+  ]
+}
