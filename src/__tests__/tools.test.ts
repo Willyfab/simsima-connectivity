@@ -142,6 +142,31 @@ describe('mcp tools', () => {
     expect(textOf(res)).toContain('source=agent%3Aclaude');
   });
 
+  it('create_checkout_link without a sku links the destination page, nothing preselected', async () => {
+    const client = await connectWith(
+      async () => ({ items, destinations, stale: false }),
+      undefined,
+      'claude'
+    );
+    const res = await client.callTool({
+      name: 'create_checkout_link',
+      arguments: { destination: 'japan' },
+    });
+    const out = textOf(res);
+    expect(out).toContain('https://simsima.io/en/esim/esim-japan?');
+    expect(out).not.toContain('#sku=');
+    expect(out).toContain('utm_content=japan');
+  });
+
+  it('search_plans accepts an ISO code or a translated country name', async () => {
+    const client = await connect();
+    for (const [destination, locale] of [['JP', 'en'], ['Japon', 'fr']]) {
+      const res: any = await client.callTool({ name: 'search_plans', arguments: { destination, locale } });
+      expect(res.isError).toBeFalsy();
+      expect(textOf(res)).toContain('for japan');
+    }
+  });
+
   it('create_checkout_link no longer asks the model for an agentSource', async () => {
     const client = await connect();
     const { tools } = await client.listTools();

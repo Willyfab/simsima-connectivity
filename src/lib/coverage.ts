@@ -19,55 +19,159 @@ function normalize(s: string): string {
 }
 
 /**
+ * Forme de comparaison d'un nom de pays : la ponctuation, « & » et l'abréviation
+ * « St. » varient d'une source à l'autre (« St. Lucia », « saint-lucia »,
+ * « Bosnia & Herzegovina ») sans que le pays change.
+ */
+function nameKey(s: string): string {
+  return normalize(s)
+    .replace(/&/g, ' and ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .replace(/^the /, '')
+    .replace(/\bst\b/g, 'saint');
+}
+
+/**
+ * Noms usuels qu'aucune des deux autres sources ne donne : ni Unicode, qui suit
+ * les noms officiels, ni les slugs du catalogue. Volontairement courte : tout
+ * ce que le catalogue nomme déjà (« turkey », « czech-republic ») n'a rien à
+ * faire ici.
+ */
+const ALIASES: Record<string, string> = {
+  usa: 'US',
+  america: 'US',
+  'united states of america': 'US',
+  'great britain': 'GB',
+  britain: 'GB',
+  england: 'GB',
+  scotland: 'GB',
+  wales: 'GB',
+  'northern ireland': 'GB',
+  korea: 'KR',
+  holland: 'NL',
+  burma: 'MM',
+  swaziland: 'SZ',
+  uae: 'AE',
+  emirates: 'AE',
+  drc: 'CD',
+  'dr congo': 'CD',
+  macedonia: 'MK',
+  'ivory coast': 'CI',
+  vatican: 'VA',
+  'holy see': 'VA',
+  'cabo verde': 'CV',
+  trinidad: 'TT',
+};
+
+/**
  * Code ISO d'un pays écrit en clair, cherché parmi les codes que le catalogue
  * couvre réellement — pas sur la terre entière : la question ne porte que sur
  * cette liste, et la restreindre évite de résoudre un pays qu'on ne vend pas.
- * Les noms sont produits par `Intl.DisplayNames` en anglais ET dans la locale
- * demandée, ce qui couvre « Croatia » comme « Croatie » sans table à maintenir.
+ *
+ * Trois sources de noms, parce qu'aucune ne suffit seule :
+ * - `Intl.DisplayNames`, en forme longue et courte, dans la locale demandée et
+ *   en anglais : « Croatie » comme « Croatia », « UK » comme « United Kingdom ».
+ *   Mais Unicode suit les noms officiels : « Türkiye », « Czechia », « Hong Kong
+ *   SAR China », et un voyageur qui écrit « Turkey » restait sans réponse ;
+ * - les slugs des destinations pays du catalogue, qui portent les noms usuels
+ *   du site (`turkey`, `czech-republic`, `hong-kong`) ;
+ * - `ALIASES`, pour les quelques noms familiers restants (« USA », « England »).
+ * Un libellé à parenthèses compte pour ses deux parties : « Myanmar (Burma) ».
  */
 export function resolveCountryCode(
   query: string,
   knownCodes: string[],
-  locale = 'en'
+  locale = 'en',
+  destinations: FeedDestination[] = []
 ): string | null {
-  const q = normalize(query);
+  const q = nameKey(query);
   if (!q) return null;
 
-  const codes = [...new Set(knownCodes.map((c) => c.toUpperCase()))];
-  if (/^[a-z]{2}$/.test(q) && codes.includes(q.toUpperCase())) return q.toUpperCase();
+  const codes = new Set(knownCodes.map((c) => c.toUpperCase()));
+  if (/^[a-z]{2}$/.test(q) && codes.has(q.toUpperCase())) return q.toUpperCase();
+
+  const byName = new Map<string, string>();
+  const add = (label: string | undefined, code: string) => {
+    if (!label) return;
+    for (const part of [label, ...label.split(/[()]/)]) {
+      const key = nameKey(part);
+      if (key && !byName.has(key)) byName.set(key, code);
+    }
+  };
 
   for (const lang of [...new Set([locale, 'en'])]) {
-    let names: Intl.DisplayNames;
-    try {
-      names = new Intl.DisplayNames([lang], { type: 'region' });
-    } catch {
-      continue;
-    }
-    for (const code of codes) {
-      let label: string | undefined;
+    for (const style of ['long', 'short'] as const) {
+      let names: Intl.DisplayNames;
       try {
-        label = names.of(code);
+        names = new Intl.DisplayNames([lang], { type: 'region', style });
       } catch {
         continue;
       }
-      if (label && normalize(label) === q) return code;
+      for (const code of codes) {
+        try {
+          add(names.of(code), code);
+        } catch {
+          /* code inconnu d'ICU : les autres sources peuvent le nommer */
+        }
+      }
     }
   }
-  return null;
+  for (const d of destinations) {
+    const code = d.countryCode?.toUpperCase();
+    if (code && codes.has(code)) add(d.destination, code);
+  }
+  for (const [alias, code] of Object.entries(ALIASES)) {
+    if (codes.has(code)) add(alias, code);
+  }
+
+  return byName.get(q) ?? null;
 }
 
 /** Destination du catalogue portant ce slug (« japan », « esim-japan »). */
 export function findDestination(
   destinations: FeedDestination[],
-  query: string
+  query: string,
+  locale = 'en'
 ): FeedDestination | null {
   const q = normalize(query).replace(/^esim-/, '').replace(/ /g, '-');
-  return (
-    destinations.find((d) => normalize(d.destination).replace(/ /g, '-') === q) ??
-    destinations.find((d) => normalize(d.pathSlug).replace(/ /g, '-') === `esim-${q}`) ??
-    null
+  const bySlug = (slug: string) =>
+    destinations.find((d) => normalize(d.destination).replace(/ /g, '-') === slug) ??
+    destinations.find((d) => normalize(d.pathSlug).replace(/ /g, '-') === `esim-${slug}`) ??
+    null;
+
+  const exact = bySlug(q);
+  if (exact) return exact;
+
+  const region = REGION_ALIASES[nameKey(query)];
+  if (region) {
+    const found = bySlug(region);
+    if (found) return found;
+  }
+
+  // Un pays écrit autrement que son slug (« JP », « USA », « Türkiye »,
+  // « Japon ») : même résolution que `check_coverage`, puis le forfait pays.
+  const countries = destinations.filter((d) => d.bundleType === 'local' && d.countryCode);
+  const code = resolveCountryCode(
+    query,
+    countries.map((d) => d.countryCode as string),
+    locale,
+    countries
   );
+  return code ? standaloneDestinationFor(destinations, code) : null;
 }
+
+/** Synonymes courants des zones du catalogue, qui n'ont pas de nom Unicode. */
+const REGION_ALIASES: Record<string, string> = {
+  global: 'world',
+  worldwide: 'world',
+  international: 'world',
+  'south america': 'latin-america',
+  'central america': 'latin-america',
+  latam: 'latin-america',
+  'middle east and north africa': 'middle-east',
+  mena: 'middle-east',
+};
 
 /** Tous les codes couverts par le catalogue, pour borner la résolution de nom. */
 export function allCoveredCodes(destinations: FeedDestination[]): string[] {

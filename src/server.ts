@@ -157,9 +157,9 @@ export function buildMcpServer(deps: {
       'search_plans',
       telemetry,
       async ({ destination, locale, maxPrice, minDataGB, maxValidityDays, unlimited }, track) => {
-        const { items, stale } = await deps.feed.getCatalog(locale);
+        const { items, destinations, stale } = await deps.feed.getCatalog(locale);
         track({ feedStale: stale });
-        const resolved = resolveDestination(items, destination);
+        const resolved = resolveDestination(items, destination, destinations, locale);
         if (!resolved) {
           // Une destination demandée qu'on ne sait pas résoudre est soit un trou
           // de catalogue, soit une variante de nommage à absorber. Les deux se
@@ -218,9 +218,9 @@ export function buildMcpServer(deps: {
       },
     },
     withTelemetry('recommend_plan', telemetry, async ({ destination, tripDays, usage, locale }, track) => {
-      const { items, stale } = await deps.feed.getCatalog(locale);
+      const { items, destinations, stale } = await deps.feed.getCatalog(locale);
       track({ feedStale: stale });
-      const resolved = resolveDestination(items, destination);
+      const resolved = resolveDestination(items, destination, destinations, locale);
       if (!resolved) {
         track({ resultCount: 0, failureReason: 'destination_not_found' });
         return errorText(`Destination "${destination}" not found. ${FIND_DESTINATION_HINT}`);
@@ -247,7 +247,7 @@ export function buildMcpServer(deps: {
     {
       ...readOnly('Get a link to buy a plan on simsima.io'),
       description:
-        "Return the URL of a plan's page on simsima.io, with the plan preselected, where the user can review and buy it. No order is placed and no payment is made by this tool. Pass the sku of the chosen plan, or a destination to link its cheapest plan.",
+        "Return the URL of a plan's page on simsima.io, with the plan preselected, where the user can review and buy it. No order is placed and no payment is made by this tool. Pass the sku of the chosen plan; with only a destination, the link opens the destination's page without a preselected plan.",
       // `agentSource` a quitté le schéma : le modèle le remplissait avec des
       // bribes de conversation (prénoms, pseudos), contraire à la politique de
       // l'annuaire et inexploitable comme attribution. Le User-Agent le remplace.
@@ -258,11 +258,11 @@ export function buildMcpServer(deps: {
       },
     },
     withTelemetry('create_checkout_link', telemetry, async ({ sku, destination, locale }, track) => {
-      const { items, stale } = await deps.feed.getCatalog(locale);
+      const { items, destinations, stale } = await deps.feed.getCatalog(locale);
       track({ feedStale: stale });
       let target: FeedItem | undefined;
       if (sku) target = items.find((i) => i.sku === sku);
-      else if (destination) target = resolveDestination(items, destination)?.items[0];
+      else if (destination) target = resolveDestination(items, destination, destinations, locale)?.items[0];
       if (!target) {
         track({
           resultCount: 0,
@@ -277,7 +277,8 @@ export function buildMcpServer(deps: {
         );
       }
       const client = deps.client ?? 'unknown';
-      const checkoutUrl = buildCheckoutLink(target, client);
+      const preselect = Boolean(sku);
+      const checkoutUrl = buildCheckoutLink(target, client, { preselect });
       track({ resultCount: 1 });
       // Événement dédié : c'est la conversion du canal agent. Noyée dans
       // `mcp_tool_call`, elle n'est lisible qu'en filtrant sur un nom d'outil ;
@@ -287,19 +288,30 @@ export function buildMcpServer(deps: {
         {
           locale,
           tool: 'create_checkout_link',
-          sku: target.sku,
           destination: target.destination,
-          price: target.price,
-          currency: target.currency,
-          unlimited: target.unlimited,
-          validityDays: target.validityDays,
-          // false = le flux n'a pas encore de deep-link, le lien renvoie sur la
-          // page destination nue et l'acheteur doit rechoisir. À surveiller.
-          preselected: Boolean(target.checkoutUrl),
+          // Sans sku, aucun forfait n'a été choisi : pas de prix à attribuer.
+          ...(preselect
+            ? {
+                sku: target.sku,
+                price: target.price,
+                currency: target.currency,
+                unlimited: target.unlimited,
+                validityDays: target.validityDays,
+              }
+            : {}),
+          // false = page destination nue, l'acheteur choisit son forfait : soit
+          // l'agent n'a donné qu'une destination, soit le flux n'a pas de
+          // deep-link pour ce forfait. À surveiller.
+          preselected: preselect && Boolean(target.checkoutUrl),
         },
         'mcp_checkout_link'
       );
-      return text('Plan page on simsima.io, where the user completes the purchase:', { checkoutUrl });
+      return text(
+        preselect
+          ? 'Plan page on simsima.io, with the plan preselected; the user completes the purchase there:'
+          : 'Destination page on simsima.io, where the user picks a plan and completes the purchase:',
+        { checkoutUrl }
+      );
     })
   );
 
@@ -326,12 +338,12 @@ export function buildMcpServer(deps: {
           'Coverage data is temporarily unavailable. Call get_destination_info later, or search_plans for the country itself.'
         );
       }
-      const dest = findDestination(destinations, destination);
+      const dest = findDestination(destinations, destination, locale);
       if (!dest) {
         track({ resultCount: 0, failureReason: 'destination_not_found' });
         return errorText(`Destination "${destination}" not found. ${FIND_DESTINATION_HINT}`);
       }
-      const code = resolveCountryCode(country, allCoveredCodes(destinations), locale);
+      const code = resolveCountryCode(country, allCoveredCodes(destinations), locale, destinations);
       if (!code) {
         track({ resultCount: 0, failureReason: 'country_not_recognized' });
         return errorText(
@@ -365,7 +377,7 @@ export function buildMcpServer(deps: {
     withTelemetry('get_destination_info', telemetry, async ({ destination, locale }, track) => {
       const { items, destinations, stale } = await deps.feed.getCatalog(locale);
       track({ feedStale: stale });
-      const dest = findDestination(destinations, destination);
+      const dest = findDestination(destinations, destination, locale);
       if (!dest) {
         track({ resultCount: 0, failureReason: 'destination_not_found' });
         return errorText(`Destination "${destination}" not found. ${FIND_DESTINATION_HINT}`);
