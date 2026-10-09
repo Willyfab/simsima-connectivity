@@ -331,7 +331,7 @@ export function buildMcpServer(deps: {
         track({ resultCount: 0, failureReason: 'destination_not_found' });
         return errorText(`Destination "${destination}" not found. ${FIND_DESTINATION_HINT}`);
       }
-      const code = resolveCountryCode(country, allCoveredCodes(destinations), locale);
+      const code = resolveCountryCode(country, allCoveredCodes(destinations), locale, destinations);
       if (!code) {
         track({ resultCount: 0, failureReason: 'country_not_recognized' });
         return errorText(
