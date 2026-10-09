@@ -1,4 +1,4 @@
-import { allCoveredCodes, resolveCountryCode } from '../lib/coverage';
+import { allCoveredCodes, findDestination, resolveCountryCode } from '../lib/coverage';
 import type { FeedDestination } from '../types';
 
 function country(slug: string, code: string): FeedDestination {
@@ -73,5 +73,43 @@ describe('resolveCountryCode', () => {
     expect(resolve('Burma')).toBeNull();
     expect(resolve('France')).toBeNull();
     expect(resolve('Narnia')).toBeNull();
+  });
+});
+
+describe('findDestination', () => {
+  const world: FeedDestination = {
+    destination: 'world',
+    pathSlug: 'esim-world',
+    url: 'https://simsima.io/en/esim/esim-world',
+    countryCode: null,
+    bundleType: 'global',
+    coverage: ['JP', 'TR', 'US'],
+    networks: [],
+  };
+  const all = [...destinations, world];
+  const slugOf = (q: string, locale = 'en') => findDestination(all, q, locale)?.destination ?? null;
+
+  it('keeps the exact slug first', () => {
+    expect(slugOf('japan')).toBe('japan');
+    expect(slugOf('esim-japan')).toBe('japan');
+    expect(slugOf('World')).toBe('world');
+  });
+
+  it('maps an ISO code or another name of a country to its country plan', () => {
+    expect(slugOf('JP')).toBe('japan');
+    expect(slugOf('USA')).toBe('united-states');
+    expect(slugOf('UK')).toBe('united-kingdom');
+    expect(slugOf('Türkiye')).toBe('turkey');
+    expect(slugOf('Japon', 'fr')).toBe('japan');
+  });
+
+  it('reads the usual synonyms of a zone', () => {
+    expect(slugOf('Global')).toBe('world');
+    expect(slugOf('worldwide')).toBe('world');
+  });
+
+  it('finds nothing for a place the catalog does not sell', () => {
+    expect(slugOf('France')).toBeNull();
+    expect(slugOf('Narnia')).toBeNull();
   });
 });

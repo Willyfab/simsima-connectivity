@@ -17,13 +17,22 @@ import type { ClientFamily } from './client-context';
  *
  * `utm_source` est la famille du client MCP (`claude`, `openai`…), tirée du
  * User-Agent : le seul signal d'origine que le modèle ne choisit pas.
+ *
+ * `preselect: false` quand l'agent n'a désigné qu'une destination : la page
+ * destination, sans forfait présélectionné, et `utm_content` = la destination.
+ * Présélectionner un forfait que personne n'a choisi enverrait l'acheteur sur
+ * le premier venu, souvent le 100 Mo d'appel.
  */
-export function buildCheckoutLink(item: FeedItem, source: ClientFamily): string {
-  const url = new URL(item.checkoutUrl || item.url);
+export function buildCheckoutLink(
+  item: FeedItem,
+  source: ClientFamily,
+  { preselect = true }: { preselect?: boolean } = {}
+): string {
+  const url = new URL((preselect && item.checkoutUrl) || item.url);
   url.searchParams.set('source', `agent:${source}`);
   url.searchParams.set('utm_source', source);
   url.searchParams.set('utm_medium', 'mcp');
   url.searchParams.set('utm_campaign', 'agent-commerce');
-  url.searchParams.set('utm_content', item.sku);
+  url.searchParams.set('utm_content', preselect ? item.sku : item.destination);
   return url.toString();
 }

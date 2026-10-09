@@ -131,15 +131,47 @@ export function resolveCountryCode(
 /** Destination du catalogue portant ce slug (« japan », « esim-japan »). */
 export function findDestination(
   destinations: FeedDestination[],
-  query: string
+  query: string,
+  locale = 'en'
 ): FeedDestination | null {
   const q = normalize(query).replace(/^esim-/, '').replace(/ /g, '-');
-  return (
-    destinations.find((d) => normalize(d.destination).replace(/ /g, '-') === q) ??
-    destinations.find((d) => normalize(d.pathSlug).replace(/ /g, '-') === `esim-${q}`) ??
-    null
+  const bySlug = (slug: string) =>
+    destinations.find((d) => normalize(d.destination).replace(/ /g, '-') === slug) ??
+    destinations.find((d) => normalize(d.pathSlug).replace(/ /g, '-') === `esim-${slug}`) ??
+    null;
+
+  const exact = bySlug(q);
+  if (exact) return exact;
+
+  const region = REGION_ALIASES[nameKey(query)];
+  if (region) {
+    const found = bySlug(region);
+    if (found) return found;
+  }
+
+  // Un pays écrit autrement que son slug (« JP », « USA », « Türkiye »,
+  // « Japon ») : même résolution que `check_coverage`, puis le forfait pays.
+  const countries = destinations.filter((d) => d.bundleType === 'local' && d.countryCode);
+  const code = resolveCountryCode(
+    query,
+    countries.map((d) => d.countryCode as string),
+    locale,
+    countries
   );
+  return code ? standaloneDestinationFor(destinations, code) : null;
 }
+
+/** Synonymes courants des zones du catalogue, qui n'ont pas de nom Unicode. */
+const REGION_ALIASES: Record<string, string> = {
+  global: 'world',
+  worldwide: 'world',
+  international: 'world',
+  'south america': 'latin-america',
+  'central america': 'latin-america',
+  latam: 'latin-america',
+  'middle east and north africa': 'middle-east',
+  mena: 'middle-east',
+};
 
 /** Tous les codes couverts par le catalogue, pour borner la résolution de nom. */
 export function allCoveredCodes(destinations: FeedDestination[]): string[] {
