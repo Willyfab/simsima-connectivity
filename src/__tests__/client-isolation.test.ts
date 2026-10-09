@@ -32,4 +32,21 @@ describe('débit par appelant réel', () => {
     expect((await call(app, '9.9.9.9')).status).not.toBe(429);
     expect((await call(app, '9.9.9.9')).status).toBe(429);
   });
+
+  it("donne à la sortie d'Anthropic son propre budget, plus large", async () => {
+    const OLD_ANTHROPIC = process.env.RATE_LIMIT_RPM_ANTHROPIC;
+    process.env.RATE_LIMIT_RPM_ANTHROPIC = '3';
+    try {
+      const app = createApp();
+      // Une IP claude.ai porte les conversations de nombreux utilisateurs :
+      // elle passe là où un appelant ordinaire (rpm=1) serait déjà bloqué…
+      for (let i = 0; i < 3; i++) {
+        expect((await call(app, '160.79.106.20')).status).not.toBe(429);
+      }
+      // … sans pour autant devenir illimitée.
+      expect((await call(app, '160.79.106.20')).status).toBe(429);
+    } finally {
+      process.env.RATE_LIMIT_RPM_ANTHROPIC = OLD_ANTHROPIC;
+    }
+  });
 });

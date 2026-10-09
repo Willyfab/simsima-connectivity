@@ -1,23 +1,73 @@
-# simsima-connectivity — MCP server
+# Simsima — travel eSIM plans in Claude
 
 [![Glama score](https://glama.ai/mcp/servers/Willyfab/simsima-connectivity/badges/score.svg)](https://glama.ai/mcp/servers/Willyfab/simsima-connectivity)
 
-**Website:** [simsima.io](https://simsima.io) · **Endpoint:** `POST https://mcp.simsima.io/mcp` (Streamable HTTP) · **Registry:** `io.github.Willyfab/simsima-connectivity`
+**Website:** [simsima.io](https://simsima.io) · **Endpoint:** `https://mcp.simsima.io/mcp` (Streamable HTTP) · **Registry:** `io.github.Willyfab/simsima-connectivity`
 
-Public MCP server exposing [Simsima](https://simsima.io)'s travel eSIM catalog to AI agents.
-Endpoint: `POST https://mcp.simsima.io/mcp` (Streamable HTTP). Health: `GET /health`.
+Simsima sells prepaid travel eSIMs for about 190 countries, regions and worldwide plans. This
+connector lets Claude, or any MCP client, look up that catalog while you plan a trip: which plans
+exist for a destination, what they cost, whether a regional plan covers every country on your
+route, which local networks it uses, and which plan fits the length of your stay. When you have
+picked one, it gives you the link to that plan on simsima.io, where you complete the purchase
+yourself.
+
+It needs no account and no login, and it only reads the public catalog.
+
+## Add it to Claude
+
+In Claude (web, desktop or mobile), open **Settings › Connectors**, choose **Add custom
+connector**, and enter `https://mcp.simsima.io/mcp`. No authentication is required.
+
+In Claude Code:
+
+```bash
+claude mcp add --transport http simsima https://mcp.simsima.io/mcp
+```
+
+## What you can ask
+
+- "I'm spending 10 days in Japan and use maps and social media a lot. Which eSIM should I take?"
+- "Does the Europe eSIM work in Switzerland and in the UK?"
+- "Compare unlimited plans for Thailand for two weeks, under $30."
+- "Which mobile networks does the Simsima eSIM for Brazil use, and can I top it up?"
+- "Give me the link to buy the 5 GB, 7-day plan for Italy."
 
 ## Tools
 
-- `list_destinations` — countries/regions covered, with min price + product URL.
-- `search_plans` — plans for a destination, with optional price/data/validity filters.
-- `get_plan` — a single plan by sku.
-- `recommend_plan` — best plan(s) for a trip (length + light/medium/heavy usage).
-- `create_checkout_link` — a Simsima product URL with agent attribution (`source`/`utm_*`), the plan already preselected.
-- `check_coverage` — does this destination cover this country? Takes a country name or an ISO code, and hands back the standalone country plan whether the answer is yes or no.
-- `get_destination_info` — coverage, mobile operators, top-up availability and entry price for one destination.
+All tools are read-only.
 
-Read + attributed-link only. No payment, no order data, no auth.
+| Tool | What it does |
+|---|---|
+| `list_destinations` | Destinations covered (countries, regions, global), with the entry price and product URL of each. |
+| `search_plans` | Plans for a destination, cheapest first, filtered by price, data, validity or unlimited data. |
+| `get_plan` | One plan by its sku. |
+| `recommend_plan` | Best plan(s) for a trip, given its length in days and light, medium or heavy usage. |
+| `check_coverage` | Whether a destination's plan covers a given country (name or ISO code), with the standalone country plan as an alternative. |
+| `get_destination_info` | Countries covered, mobile operators, top-up availability and entry price for one destination. |
+| `create_checkout_link` | Link to a plan's page on simsima.io, with the plan preselected. No order is placed and no payment is made by the tool: the purchase happens on the website. |
+
+## Data and privacy
+
+The server never receives your conversation, only the parameters Claude passes to a tool. For
+each call it records the tool name, the search parameters (destination, plan, trip length, usage
+level, language), the type of client read from the HTTP User-Agent (for example "Claude"), and the
+country derived from the IP address, in order to measure use of the service. These events go to
+PostHog, hosted in the EU. The IP address itself is only used in memory to limit request rates and
+is never stored. Links handed out carry `utm_*` parameters naming the client type, so a purchase
+can be attributed to the connector.
+
+Full privacy policy: [simsima.io/en/privacy](https://simsima.io/en/privacy) · Terms:
+[simsima.io/en/terms](https://simsima.io/en/terms)
+
+## Support
+
+Questions or problems: [support@simsima.io](mailto:support@simsima.io).
+
+---
+
+# For developers
+
+Health check: `GET https://mcp.simsima.io/health`.
 
 ## Data source
 
@@ -39,9 +89,10 @@ say nothing useful.
 - `SIMSIMA_FEED_BASE` (default `https://simsima.io`)
 - `PORT` (default 8080)
 - `RATE_LIMIT_RPM` (default 60) — per calling IP. Relies on `trust proxy`: without it every caller shares the proxy's address and the limit turns into one global ceiling that a single scanner empties.
+- `RATE_LIMIT_RPM_ANTHROPIC` (default 1200) — per calling IP inside Anthropic's outbound range `160.79.104.0/21`, where every claude.ai connector call comes from. A handful of those addresses carry the traffic of all Claude users at once; at the ordinary per-caller limit, a few simultaneous conversations would get everyone throttled.
 - `POSTHOG_KEY` (optional) — PostHog project API key. When set, the server emits an `mcp_tool_call` event per tool call, carrying `resultCount`, `feedStale` and a named `failureReason` when a call comes back empty, plus a dedicated `mcp_checkout_link` event when a checkout link is handed out. Absent → telemetry disabled (no-op).
 
-  Each event also carries where the call came from, read once per request from the headers: `client` (`claude` / `openai` / `cursor` / `vscode` / `bot` / `script` / `unknown`), the raw `userAgent`, and `country`. The User-Agent is sent by the MCP client rather than written by the model, which makes it the one origin signal a caller does not pick for itself — `agentSource` is a free-form string and reads as conversation context, not identity. The caller's IP is resolved as well (`CF-Connecting-IP`, then `X-Forwarded-For`, then `req.ip`) and is used **only** to meter requests; it never reaches PostHog.
+  Each event also carries where the call came from, read once per request from the headers: `client` (`claude` / `openai` / `cursor` / `vscode` / `bot` / `script` / `unknown`), the raw `userAgent`, and `country`. The User-Agent is sent by the MCP client rather than written by the model, which makes it the one origin signal a caller does not pick for itself. It is also what the checkout link is attributed to (`source=agent:<client>`, `utm_source=<client>`) and what PostHog's `distinct_id` is built from (`mcp:<client>`). An earlier `agentSource` argument, filled in by the model from the conversation, has been removed: it carried conversation fragments and identified nobody. The caller's IP is resolved as well (`CF-Connecting-IP`, then `X-Forwarded-For`, then `req.ip`) and is used **only** to meter requests; it never reaches PostHog.
 - `POSTHOG_HOST` (optional, default `https://eu.i.posthog.com`) — PostHog ingestion host (match the web app).
 
 ## Local dev
@@ -49,15 +100,10 @@ say nothing useful.
 ```bash
 cd mcp
 npm install
-npm test          # jest (42 tests)
+npm test          # jest
 npm run dev       # ts-node-dev on :8080
 curl localhost:8080/health
 ```
-
-## Connect from Claude (private validation — Phase 1a)
-
-Add a custom connector pointing at `https://mcp.simsima.io/mcp`, then try:
-"Recommande-moi un eSIM pour 7 jours au Japon en usage moyen."
 
 ## Deploy
 
