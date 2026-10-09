@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import type { CatalogResult, FeedItem, Locale } from './types';
+import { LOCALES, type CatalogResult, type FeedItem, type Locale } from './types';
 import { resolveDestination } from './lib/resolve-destination';
 import { recommendPlans } from './lib/recommend';
 import { buildCheckoutLink } from './lib/checkout-link';
@@ -13,7 +13,12 @@ import {
 import { createTelemetry, withTelemetry, type Telemetry } from './telemetry';
 import type { ClientFamily } from './lib/client-context';
 
-const localeSchema = z.enum(['en', 'fr']).default('en');
+const localeSchema = z
+  .enum(LOCALES)
+  .default('en')
+  .describe(
+    "Language of the user. Sets the language of product pages and the currency of prices (en: USD, fr: EUR, ja: JPY, etc.)."
+  );
 
 /**
  * Aucun outil n'écrit quoi que ce soit : tous lisent le flux catalogue, le lien

@@ -1,4 +1,13 @@
-export type Locale = 'en' | 'fr';
+/**
+ * Les langues du site (`web/i18n.ts`) : le flux `/{locale}/agent/catalog` existe
+ * dans chacune, avec ses URL localisées et sa devise (USD en anglais, EUR en
+ * français, JPY en japonais…). Les slugs de destination, eux, ne changent pas.
+ */
+export const LOCALES = [
+  'en', 'fr', 'es', 'de', 'pt', 'it', 'zh', 'ja', 'ko', 'ar', 'ru', 'tr', 'hi',
+  'vi', 'th', 'sv', 'nb', 'da', 'fi', 'nl', 'pl', 'cs', 'zh-TW', 'id', 'tl', 'he',
+] as const;
+export type Locale = (typeof LOCALES)[number];
 export type Usage = 'light' | 'medium' | 'heavy';
 
 export interface FeedItem {

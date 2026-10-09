@@ -233,6 +233,33 @@ describe('telemetry emitted by the tools', () => {
 });
 
 
+describe('locales', () => {
+  it('serves every language of the site, not just en and fr', async () => {
+    const asked: Locale[] = [];
+    const client = await connectWith(async (l) => {
+      asked.push(l);
+      return { items, destinations, stale: false };
+    });
+    for (const locale of ['de', 'ja', 'zh-TW', 'he']) {
+      const r: any = await client.callTool({
+        name: 'search_plans',
+        arguments: { destination: 'japan', locale },
+      });
+      expect(r.isError).toBeFalsy();
+    }
+    expect(asked).toEqual(['de', 'ja', 'zh-TW', 'he']);
+  });
+
+  it('rejects a language the site does not have', async () => {
+    const client = await connect();
+    const r: any = await client.callTool({
+      name: 'search_plans',
+      arguments: { destination: 'japan', locale: 'xx' },
+    });
+    expect(r.isError).toBe(true);
+  });
+});
+
 describe('check_coverage', () => {
   it('answers with a plain country name, not just an ISO code', async () => {
     const client = await connect();
@@ -254,6 +281,16 @@ describe('check_coverage', () => {
     expect(out).toContain('"covered": false');
     // Ne pas laisser l'agent sur un « non » : le forfait Japon existe.
     expect(out).toContain('https://simsima.io/en/esim/esim-japan');
+  });
+
+  it('reads a country name written in the user\'s language and script', async () => {
+    const client = await connect();
+    const r: any = await client.callTool({
+      name: 'check_coverage',
+      arguments: { destination: 'europe', country: 'クロアチア', locale: 'ja' },
+    });
+    expect(textOf(r)).toContain('"country": "HR"');
+    expect(textOf(r)).toContain('"covered": true');
   });
 
   it('degrades explicitly when the feed carries no coverage', async () => {
