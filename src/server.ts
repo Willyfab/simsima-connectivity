@@ -19,13 +19,23 @@ const localeSchema = z.enum(['en', 'fr']).default('en');
  * Aucun outil n'écrit quoi que ce soit : tous lisent le flux catalogue, le lien
  * d'achat compris (il construit une URL, la commande se passe sur le site).
  * L'annuaire Anthropic rejette un outil sans `readOnlyHint` ni `destructiveHint`.
+ *
+ * Le titre va aux deux endroits que prévoit MCP : sur l'outil, où le lisent les
+ * clients, et dans `annotations`, où le lit le portail de l'annuaire (il signale
+ * sinon « Missing title annotation » sur chaque outil).
  */
-const READ_ONLY = {
-  readOnlyHint: true,
-  destructiveHint: false,
-  idempotentHint: true,
-  openWorldHint: false,
-} as const;
+function readOnly(title: string) {
+  return {
+    title,
+    annotations: {
+      title,
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  } as const;
+}
 
 /** Rappelé dans chaque erreur de destination : c'est la sortie de l'impasse. */
 const FIND_DESTINATION_HINT =
@@ -81,11 +91,10 @@ export function buildMcpServer(deps: {
   server.registerTool(
     'list_destinations',
     {
-      title: 'List eSIM destinations',
+      ...readOnly('List eSIM destinations'),
       description:
         'List the destinations Simsima covers (countries, regions and global plans), with the entry price and product URL of each.',
       inputSchema: { locale: localeSchema },
-      annotations: READ_ONLY,
     },
     withTelemetry('list_destinations', telemetry, async ({ locale }, track) => {
       const { items, stale } = await deps.feed.getCatalog(locale);
@@ -127,7 +136,7 @@ export function buildMcpServer(deps: {
   server.registerTool(
     'search_plans',
     {
-      title: 'Search eSIM plans',
+      ...readOnly('Search eSIM plans'),
       description:
         'Search the eSIM plans of a destination (country, region or global), cheapest first, with optional filters on price, data, validity and unlimited data.',
       inputSchema: {
@@ -138,7 +147,6 @@ export function buildMcpServer(deps: {
         maxValidityDays: z.number().optional(),
         unlimited: z.boolean().optional(),
       },
-      annotations: READ_ONLY,
     },
     withTelemetry(
       'search_plans',
@@ -172,10 +180,9 @@ export function buildMcpServer(deps: {
   server.registerTool(
     'get_plan',
     {
-      title: 'Get eSIM plan detail',
+      ...readOnly('Get eSIM plan detail'),
       description: 'Get one eSIM plan by its sku, as returned by search_plans or recommend_plan.',
       inputSchema: { sku: z.string(), locale: localeSchema },
-      annotations: READ_ONLY,
     },
     withTelemetry('get_plan', telemetry, async ({ sku, locale }, track) => {
       const { items, stale } = await deps.feed.getCatalog(locale);
@@ -195,7 +202,7 @@ export function buildMcpServer(deps: {
   server.registerTool(
     'recommend_plan',
     {
-      title: 'Recommend an eSIM plan',
+      ...readOnly('Recommend an eSIM plan'),
       description:
         'Recommend the best plan(s) for a trip to a destination, given its length in days and expected data usage (light, medium or heavy).',
       inputSchema: {
@@ -204,7 +211,6 @@ export function buildMcpServer(deps: {
         usage: z.enum(['light', 'medium', 'heavy']),
         locale: localeSchema,
       },
-      annotations: READ_ONLY,
     },
     withTelemetry('recommend_plan', telemetry, async ({ destination, tripDays, usage, locale }, track) => {
       const { items, stale } = await deps.feed.getCatalog(locale);
@@ -234,7 +240,7 @@ export function buildMcpServer(deps: {
   server.registerTool(
     'create_checkout_link',
     {
-      title: 'Get a link to buy a plan on simsima.io',
+      ...readOnly('Get a link to buy a plan on simsima.io'),
       description:
         "Return the URL of a plan's page on simsima.io, with the plan preselected, where the user can review and buy it. No order is placed and no payment is made by this tool. Pass the sku of the chosen plan, or a destination to link its cheapest plan.",
       // `agentSource` a quitté le schéma : le modèle le remplissait avec des
@@ -245,7 +251,6 @@ export function buildMcpServer(deps: {
         destination: z.string().optional(),
         locale: localeSchema,
       },
-      annotations: READ_ONLY,
     },
     withTelemetry('create_checkout_link', telemetry, async ({ sku, destination, locale }, track) => {
       const { items, stale } = await deps.feed.getCatalog(locale);
@@ -296,7 +301,7 @@ export function buildMcpServer(deps: {
   server.registerTool(
     'check_coverage',
     {
-      title: 'Check whether a destination covers a country',
+      ...readOnly('Check whether a destination covers a country'),
       description:
         'Answer "does this eSIM work in <country>" for a destination (country, region or global plan). Accepts a country name or ISO code.',
       inputSchema: {
@@ -304,7 +309,6 @@ export function buildMcpServer(deps: {
         country: z.string(),
         locale: localeSchema,
       },
-      annotations: READ_ONLY,
     },
     withTelemetry('check_coverage', telemetry, async ({ destination, country, locale }, track) => {
       const { destinations, stale } = await deps.feed.getCatalog(locale);
@@ -348,11 +352,10 @@ export function buildMcpServer(deps: {
   server.registerTool(
     'get_destination_info',
     {
-      title: 'Get destination coverage and networks',
+      ...readOnly('Get destination coverage and networks'),
       description:
         'Coverage (ISO country codes), mobile operators, top-up availability and entry price for a destination.',
       inputSchema: { destination: z.string(), locale: localeSchema },
-      annotations: READ_ONLY,
     },
     withTelemetry('get_destination_info', telemetry, async ({ destination, locale }, track) => {
       const { items, destinations, stale } = await deps.feed.getCatalog(locale);
