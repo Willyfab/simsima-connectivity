@@ -163,7 +163,12 @@ describe('mcp tools', () => {
     expect(tools).toHaveLength(7);
     for (const t of tools) {
       expect(t.title).toBeTruthy();
-      expect(t.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
+      // Le portail de l'annuaire lit le titre dans les annotations.
+      expect(t.annotations).toMatchObject({
+        title: t.title,
+        readOnlyHint: true,
+        destructiveHint: false,
+      });
     }
   });
 
